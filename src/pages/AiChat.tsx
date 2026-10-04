@@ -12,19 +12,6 @@ interface Message {
   content: string;
 }
 
-const OPENAI_API_KEY = 'sua-chave-api-aqui';
-
-const SYSTEM_PROMPT = `Você é um assistente especializado em tratamentos com medicamentos GLP-1 (como Ozempic, Mounjaro, Wegovy, Saxenda, Trulicity e outros agonistas). Você ajuda pacientes a entender seu tratamento, efeitos colaterais, nutrição e estilo de vida.
-
-Regras:
-- Responda sempre em português do Brasil
-- Seja empático, claro e objetivo
-- Cite fontes médicas quando relevante
-- Para sintomas graves (dor abdominal intensa, vômitos persistentes, pancreatite, reações alérgicas), oriente SEMPRE a buscar atendimento médico urgente
-- Não substitua consultas médicas — reforce isso quando necessário
-- Foque em orientações práticas sobre: doses, efeitos colaterais comuns, nutrição, hidratação, atividade física e adesão ao tratamento
-- Seja breve (máx 3 parágrafos), mas completo`;
-
 const SUGGESTED_QUESTIONS = [
   'Como reduzir náuseas com o tratamento?',
   'O que comer nas primeiras semanas?',
@@ -68,36 +55,28 @@ const AiChat = () => {
     setInput('');
     setLoading(true);
 
-    const contextIntro = data.medication
-      ? `[Contexto do usuário: usa ${data.medication}, dose ${data.currentDose || 'n/i'}, frequência ${data.frequency || 'n/i'}]`
-      : '';
-
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT + (contextIntro ? `\n\n${contextIntro}` : '') },
-            ...updatedMessages.map((m) => ({ role: m.role, content: m.content })),
-          ],
-          temperature: 0.7,
-          max_tokens: 600,
+          messages: updatedMessages,
+          context: {
+            medication: data.medication,
+            currentDose: data.currentDose,
+            frequency: data.frequency,
+          },
         }),
       });
 
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Erro na API');
-      const reply = json.choices?.[0]?.message?.content ?? 'Não consegui responder. Tente novamente.';
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error || 'Erro na API');
+      const reply = json?.reply ?? 'Não consegui responder. Tente novamente.';
       setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
     } catch (err: any) {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: `Erro: ${err?.message || 'Falha na conexão. Verifique sua chave de API.'}` },
+        { role: 'assistant', content: `Erro: ${err?.message || 'Falha na conexão. Tente novamente.'}` },
       ]);
     } finally {
       setLoading(false);

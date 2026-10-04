@@ -133,9 +133,10 @@ Para essa funcao funcionar corretamente, e necessario configurar a integracao co
 
 Importante:
 
-- nao e recomendado deixar chave de API exposta no codigo
-- o ideal e usar variaveis de ambiente
-- se a chave nao estiver configurada corretamente, essa funcao pode nao funcionar
+- a chave fica na variavel de ambiente `OPENAI_API_KEY`, nunca no codigo
+- localmente: copie `.env.example` para `.env.local`, preencha a chave e rode `vercel dev`
+- na Vercel: cadastre `OPENAI_API_KEY` em Settings > Environment Variables
+- se a chave nao estiver configurada, o chat e a analise por foto mostram um erro
 
 ## Onde os dados ficam salvos
 
@@ -173,7 +174,8 @@ Verifique:
 Verifique:
 
 - se existe conexao com a internet
-- se a chave da OpenAI esta configurada corretamente
+- se a variavel `OPENAI_API_KEY` esta configurada (localmente no `.env.local`, ou na Vercel)
+- se voce esta rodando com `vercel dev` (o `npm run dev` nao executa as funcoes em `api/`)
 - se a conta da API possui saldo e acesso ao modelo utilizado
 
 ## 4. Os dados sumiram

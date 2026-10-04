@@ -16,6 +16,29 @@ import InjectionSitePicker, { InjectionSite } from '@/components/InjectionSitePi
 import { getInjectionSiteLabel } from '@/utils/injectionSites';
 import { AnalysisEntry } from '@/types/analysis';
 
+// Reduz a foto para caber no limite de 4,5 MB do corpo das Vercel Functions.
+const resizeImage = (file: File, maxSize = 1280): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Canvas indisponível'));
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Imagem inválida'));
+    };
+    img.src = url;
+  });
+
 export const BottomNav = () => {
   const { toast } = useToast();
   const { addDose } = useDoses();
@@ -34,8 +57,7 @@ export const BottomNav = () => {
   });
   const [site, setSite] = useState<InjectionSite | undefined>(undefined);
 
-  // --- Análise por foto (OpenAI) ---
-  const OPENAI_API_KEY = 'sua-chave-api-aqui';
+  // --- Análise por foto (OpenAI, via /api/analyze-meal) ---
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -51,11 +73,11 @@ export const BottomNav = () => {
       setImageDataUrl(null);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setImageDataUrl(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      setImageDataUrl(await resizeImage(file));
+    } catch {
+      setAnalysisError('Não foi possível ler a imagem.');
+    }
   };
 
   const analyzeWithOpenAI = async () => {
@@ -67,41 +89,16 @@ export const BottomNav = () => {
     setAnalysisError(null);
     setAnalysisResult(null);
     try {
-      const body = {
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Você é um nutricionista. Analise a refeição da imagem e retorne apenas um JSON com os campos: name (string), healthScore (0-100), nutrients { kcal (int), protein (int), carbs (int), fat (int), fiber (int) }, processingLevel (string). Não inclua texto fora do JSON.'
-          },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: 'Analise esta refeição e retorne somente JSON válido.' },
-              { type: 'image_url', image_url: { url: imageDataUrl } },
-            ],
-          },
-        ],
-        temperature: 0,
-        response_format: { type: 'json_object' },
-      } as any;
-
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch('/api/analyze-meal', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageDataUrl }),
       });
 
-      const json = await res.json();
+      const parsed = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(json?.error?.message || 'Falha na análise com OpenAI');
+        throw new Error(parsed?.error || 'Falha na análise com OpenAI');
       }
-      const content = json?.choices?.[0]?.message?.content ?? '';
-      const parsed = JSON.parse(content);
       setAnalysisResult(parsed);
 
       // Persistir análise no localStorage (histórico na página Lifestyle)

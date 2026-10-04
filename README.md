@@ -128,19 +128,16 @@ Para utilizar a funcionalidade de **análise de pratos por foto**, você precisa
    - Crie uma conta ou faça login
    - Vá para "API Keys" e gere uma nova chave
 
-2. **Configure a chave no código:**
-   - Abra o arquivo `src/components/BottomNav.tsx`
-   - Localize a linha com `OPENAI_API_KEY`
-   - Substitua pela sua chave API:
-   ```typescript
-   const OPENAI_API_KEY = 'sua-chave-api-aqui';
-   ```
+2. **Configure a chave como variável de ambiente:**
+   - A chave nunca fica no código do frontend: as chamadas à OpenAI passam pelas Vercel Functions em `api/chat.ts` (chat com IA) e `api/analyze-meal.ts` (análise de pratos)
+   - Localmente: copie `.env.example` para `.env.local` e preencha `OPENAI_API_KEY`, depois rode `vercel dev` (o `npm run dev` sozinho não executa as funções em `api/`)
+   - Na Vercel: Project → Settings → Environment Variables → `OPENAI_API_KEY`, ou `vercel env add OPENAI_API_KEY`
 
 3. **Modelo utilizado:**
    - A aplicação usa o modelo `gpt-4o-mini` para análise de imagens
    - Certifique-se de que sua conta OpenAI tem acesso a este modelo
 
-> ⚠️ **Importante:** Mantenha sua chave API segura e nunca a compartilhe publicamente. Em produção, use variáveis de ambiente.
+> ⚠️ **Importante:** Nunca coloque a chave no código em `src/` nem faça commit do `.env.local` — tudo em `src/` vai para o navegador do usuário.
 
 ### Instalação
 ```bash
