@@ -1,0 +1,68 @@
+{
+  "projectName": "moujapp",
+  "public": false,
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "nodeVersion": "20.x",
+  "env": [
+    {
+      "key": "VITE_SUPABASE_URL",
+      "value": "@vite_supabase_url"
+    },
+    {
+      "key": "VITE_SUPABASE_ANON_KEY",
+      "value": "@vite_supabase_anon_key"
+    },
+    {
+      "key": "VITE_API_URL",
+      "value": "@vite_api_url_prod"
+    }
+  ],
+  "regions": ["iad1", "fra1", "lhr1"],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "destination": "$1"
+    },
+    {
+      "src": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, s-maxage=86400"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/health",
+      "destination": "/api/health",
+      "permanent": false
+    }
+  ]
+}

@@ -94,10 +94,24 @@ const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunctio
 
 // ===== HEALTH CHECK =====
 app.get('/health', (req: Request, res: Response) => {
+  const uptime = process.uptime();
+  const memoryUsage = process.memoryUsage();
+
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
+    uptime: Math.floor(uptime),
+    environment: process.env.NODE_ENV || 'development',
     database: 'connected',
+    system: {
+      memory: {
+        rss: Math.round(memoryUsage.rss / 1024 / 1024),
+        heap: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+      },
+      platform: process.platform,
+      node: process.version,
+    },
   });
 });
 
