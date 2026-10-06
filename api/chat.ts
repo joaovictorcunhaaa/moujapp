@@ -1,81 +1,158 @@
+import { z } from 'zod';
+import { secureEndpoint, validators, Logger, errorResponse, jsonResponse } from './utils/security';
+
+/**
+ * ⚠️ DISCLAIMER IMPORTANTE: Este assistente NÃO substitui orientação médica profissional
+ * Sempre recomende que o usuário consulte seu médico
+ */
 const SYSTEM_PROMPT = `Você é um assistente especializado em tratamentos com medicamentos GLP-1 (como Ozempic, Mounjaro, Wegovy, Saxenda, Trulicity e outros agonistas). Você ajuda pacientes a entender seu tratamento, efeitos colaterais, nutrição e estilo de vida.
 
-Regras:
+⚠️ AVISO CRÍTICO - VOCÊ DEVE SEMPRE CUMPRIR ESTAS REGRAS:
+- NUNCA substitua orientação médica profissional
+- Para sintomas GRAVES (dor abdominal intensa, vômitos persistentes, pancreatite, reações alérgicas, dificuldade de respirar), oriente SEMPRE a buscar atendimento URGENTE
+- Reforce em cada resposta que isso é informacional e não médico
+- Se o usuário relatar sintomas graves, PARE a conversa e redirecione para emergência
+
+Regras de comportamento:
 - Responda sempre em português do Brasil
 - Seja empático, claro e objetivo
 - Cite fontes médicas quando relevante
-- Para sintomas graves (dor abdominal intensa, vômitos persistentes, pancreatite, reações alérgicas), oriente SEMPRE a buscar atendimento médico urgente
 - Não substitua consultas médicas — reforce isso quando necessário
 - Foque em orientações práticas sobre: doses, efeitos colaterais comuns, nutrição, hidratação, atividade física e adesão ao tratamento
-- Seja breve (máx 3 parágrafos), mas completo`;
+- Seja breve (máx 3 parágrafos), mas completo
+- Comece com: "⚠️ Lembre-se: sou um assistente de IA, não um médico. Sempre consulte seu médico para orientação médica."`;
 
-const MAX_MESSAGES = 20;
-const MAX_CONTENT_LENGTH = 4000;
+const field = (value: unknown) => (typeof value === 'string' && value.trim() ? value.slice(0, 100) : 'não informado');
 
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
+/**
+ * Validar se a mensagem é sobre emergência médica
+ */
+const isEmergencyKeyword = (content: string): boolean => {
+  const emergencyWords = [
+    'dor abdominal intensa',
+    'vômito persistente',
+    'pancreatite',
+    'reação alérgica',
+    'dificuldade respirar',
+    'desmaio',
+    'convulsão',
+    'sangramento',
+    'emergência',
+    'urgente',
+    'pronto socorro',
+    'ambulância',
+  ];
 
-interface ChatContext {
-  medication?: string;
-  currentDose?: string;
-  frequency?: string;
-}
+  const lower = content.toLowerCase();
+  return emergencyWords.some(word => lower.includes(word));
+};
 
-const isChatMessage = (m: any): m is ChatMessage =>
-  m &&
-  (m.role === 'user' || m.role === 'assistant') &&
-  typeof m.content === 'string' &&
-  m.content.length <= MAX_CONTENT_LENGTH;
-
-const field = (value: unknown) => (typeof value === 'string' && value.trim() ? value.slice(0, 100) : 'n/i');
-
-export async function POST(request: Request) {
+/**
+ * Handler seguro para chat
+ */
+const handler = async (request: Request, logger: Logger): Promise<Response> => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return Response.json({ error: 'OPENAI_API_KEY não configurada no servidor.' }, { status: 500 });
+    logger.error('OPENAI_API_KEY não configurada');
+    return errorResponse('API não configurada', 500, 'API_NOT_CONFIGURED');
   }
 
-  let body: { messages?: unknown; context?: ChatContext };
+  // Validar JSON
+  let body: unknown;
   try {
     body = await request.json();
-  } catch {
-    return Response.json({ error: 'JSON inválido.' }, { status: 400 });
+  } catch (error) {
+    logger.warn('JSON inválido');
+    return errorResponse('JSON inválido', 400, 'INVALID_JSON');
   }
 
-  const messages = Array.isArray(body.messages) ? body.messages.slice(-MAX_MESSAGES) : [];
-  if (messages.length === 0 || !messages.every(isChatMessage)) {
-    return Response.json({ error: 'Mensagens inválidas.' }, { status: 400 });
+  // Validar mensagens
+  const bodyObj = body as any;
+  const messagesValidation = validators.chatMessages.safeParse(bodyObj?.messages);
+
+  if (!messagesValidation.success) {
+    logger.warn('Mensagens inválidas', { errors: messagesValidation.error.errors });
+    return errorResponse(
+      'Mensagens inválidas',
+      400,
+      'INVALID_MESSAGES',
+      messagesValidation.error.errors
+    );
   }
 
-  const context = body.context;
+  // Validar contexto (opcional)
+  const contextValidation = validators.chatContext.safeParse(bodyObj?.context);
+  const context = contextValidation.success ? contextValidation.data : undefined;
+
+  // Extrair última mensagem do usuário
+  const messages = messagesValidation.data;
+  const lastUserMessage = messages.findLast((m) => m.role === 'user')?.content || '';
+
+  // ⚠️ VERIFICAR EMERGÊNCIA
+  if (isEmergencyKeyword(lastUserMessage)) {
+    logger.warn('Mensagem com palavra-chave de emergência detectada', { keyword: lastUserMessage.slice(0, 50) });
+    return jsonResponse({
+      reply: `🚨 EMERGÊNCIA MÉDICA DETECTADA
+
+Baseado na sua mensagem, você pode estar enfrentando uma situação de emergência médica.
+
+⚠️ PROCURE ATENDIMENTO MÉDICO URGENTE IMEDIATAMENTE:
+📞 Ligue para 192 (SAMU) ou 911
+🏥 Vá ao pronto socorro mais próximo
+👨‍⚕️ Chame uma ambulância
+
+Este assistente de IA NÃO pode ajudar com emergências. Você precisa de um médico AGORA.
+
+Sua segurança é a prioridade.`,
+      isEmergency: true,
+    });
+  }
+
+  // Construir contexto
   const contextIntro = context?.medication
     ? `\n\n[Contexto do usuário: usa ${field(context.medication)}, dose ${field(context.currentDose)}, frequência ${field(context.frequency)}]`
     : '';
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT + contextIntro },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-      ],
-      temperature: 0.7,
-      max_tokens: 600,
-    }),
-  });
+  try {
+    logger.info('Enviando para OpenAI', { messageCount: messages.length });
 
-  const json = await res.json().catch(() => null);
-  if (!res.ok) {
-    return Response.json({ error: json?.error?.message || 'Erro na API da OpenAI.' }, { status: 502 });
+    // Chamar OpenAI
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT + contextIntro },
+          ...messages.map((m) => ({ role: m.role, content: m.content })),
+        ],
+        temperature: 0.7,
+        max_tokens: 600,
+      }),
+    });
+
+    const openaiData = await openaiResponse.json().catch(() => null);
+
+    if (!openaiResponse.ok) {
+      const errorMsg = openaiData?.error?.message || 'OpenAI API error';
+      logger.error('OpenAI error', { status: openaiResponse.status, error: errorMsg });
+      return errorResponse(errorMsg, 502, 'OPENAI_ERROR');
+    }
+
+    const reply = openaiData?.choices?.[0]?.message?.content || 'Não consegui responder. Tente novamente.';
+
+    logger.info('Chat concluído com sucesso');
+    return jsonResponse({ reply, isEmergency: false });
+  } catch (error) {
+    logger.error('Erro inesperado no chat', error);
+    return errorResponse('Erro ao processar chat', 500, 'CHAT_ERROR');
   }
+};
 
-  const reply = json?.choices?.[0]?.message?.content ?? 'Não consegui responder. Tente novamente.';
-  return Response.json({ reply });
-}
+/**
+ * Endpoint seguro
+ */
+export const POST = secureEndpoint(handler);
