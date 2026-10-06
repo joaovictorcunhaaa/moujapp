@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { loadFromStorage, saveToStorage, removeFromStorage } from '@/utils/storage';
+import { StorageSchemas } from '@/utils/storage';
 
 export interface DoseRecord {
   id: string;
@@ -15,24 +17,27 @@ interface DosesContextValue {
   clearDoses: () => void;
   removeDose: (id: string) => void;
   lastDose: DoseRecord | null;
+  error: string | null;
 }
 
 const DosesContext = createContext<DosesContextValue | null>(null);
 
 export const DosesProvider = ({ children }: { children: ReactNode }) => {
+  // ✅ Carregar com validação - nunca quebra
   const [doses, setDoses] = useState<DoseRecord[]>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      const parsed: DoseRecord[] = JSON.parse(raw);
-      return parsed.sort((a, b) => new Date(b.dateISO).getTime() - new Date(a.dateISO).getTime());
-    } catch {
-      return [];
-    }
+    return loadFromStorage(STORAGE_KEY, StorageSchemas.doses, []);
   });
 
+  const [error, setError] = useState<string | null>(null);
+
+  // ✅ Salvar com validação - sempre seguro
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(doses));
+    const success = saveToStorage(STORAGE_KEY, doses, StorageSchemas.doses);
+    if (!success) {
+      setError('Falha ao salvar histórico de doses');
+    } else {
+      setError(null);
+    }
   }, [doses]);
 
   const addDose = (date: Date, dosageMg: number, site?: string) => {
@@ -42,17 +47,41 @@ export const DosesProvider = ({ children }: { children: ReactNode }) => {
       dosageMg,
       site,
     };
+
+    // ✅ Validar antes de adicionar
+    const validation = StorageSchemas.dose.safeParse(record);
+    if (!validation.success) {
+      setError('Dose inválida - não foi adicionada');
+      return;
+    }
+
     setDoses(prev => [record, ...prev].sort((a, b) => new Date(b.dateISO).getTime() - new Date(a.dateISO).getTime()));
+    setError(null);
   };
 
-  const clearDoses = () => setDoses([]);
-  const removeDose = (id: string) => setDoses(prev => prev.filter(d => d.id !== id));
+  const clearDoses = () => {
+    removeFromStorage(STORAGE_KEY);
+    setDoses([]);
+  };
+
+  const removeDose = (id: string) => {
+    setDoses(prev => prev.filter(d => d.id !== id));
+  };
 
   const lastDose = useMemo(() => (doses.length ? doses[0] : null), [doses]);
 
-  const value: DosesContextValue = { doses, addDose, clearDoses, removeDose, lastDose };
+  const value: DosesContextValue = { doses, addDose, clearDoses, removeDose, lastDose, error };
 
-  return <DosesContext.Provider value={value}>{children}</DosesContext.Provider>;
+  return (
+    <DosesContext.Provider value={value}>
+      {children}
+      {error && (
+        <div className="fixed bottom-4 right-4 bg-red-500 text-white p-4 rounded shadow-lg z-50">
+          <p className="text-sm">{error}</p>
+        </div>
+      )}
+    </DosesContext.Provider>
+  );
 };
 
 export const useDoses = (): DosesContextValue => {

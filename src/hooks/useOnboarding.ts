@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
 import { OnboardingData, defaultOnboardingData } from '@/types/onboarding';
+import { loadFromStorage, saveToStorage, removeFromStorage } from '@/utils/storage';
+import { StorageSchemas } from '@/utils/storage';
 
 const STORAGE_KEY = 'moujapp-onboarding';
 
 export const useOnboarding = () => {
+  // ✅ Carregar com validação - nunca quebra
   const [data, setData] = useState<OnboardingData>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : defaultOnboardingData;
+    return loadFromStorage(STORAGE_KEY, StorageSchemas.onboarding, defaultOnboardingData);
   });
 
+  // ✅ Salvar com validação - sempre seguro
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    saveToStorage(STORAGE_KEY, data, StorageSchemas.onboarding);
   }, [data]);
 
   const updateData = (updates: Partial<OnboardingData>) => {
@@ -27,7 +30,7 @@ export const useOnboarding = () => {
 
   const resetOnboarding = () => {
     setData(defaultOnboardingData);
-    localStorage.removeItem(STORAGE_KEY);
+    removeFromStorage(STORAGE_KEY);
   };
 
   return {
